@@ -7,6 +7,20 @@ import { formatRupees, formatTimestamp } from "../format";
 import { explainException } from "../narrate";
 import type { ExceptionListItem, ExceptionListResponse } from "../types";
 
+const SEVERITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+
+/** Composite priority, lowest first: severity is the primary axis, then
+ * a case whose proposed cause already failed verification (nothing left
+ * to wait on), then a low-confidence proposal (< 50%), then value at
+ * stake. Purely a display-order decision over data already returned by
+ * the API - no new fields, no backend change. */
+function priorityScore(exc: ExceptionListItem): number {
+  const severity = SEVERITY_RANK[exc.severity] ?? 4;
+  const verifierFailed = exc.verifier_result?.passed === false ? 0 : 1;
+  const lowConfidence = exc.confidence !== null && exc.confidence < 0.5 ? 0 : 1;
+  return severity * 1000 + verifierFailed * 100 + lowConfidence * 10;
+}
+
 export default function Exceptions() {
   const { selectedBatchId } = useBatch();
   const navigate = useNavigate();
@@ -32,12 +46,13 @@ export default function Exceptions() {
       <h1 className="page-title">Exceptions</h1>
       <p className="page-sub">
         {data.total} open exception{data.total === 1 ? "" : "s"} — {formatRupees(data.total_value_paisa)} total value.
+        Sorted by priority — severity, then a proposal that already failed verification, then low confidence, then value at stake.
         Every exception answers what happened, what was attempted, why automation stopped, and what a human should do next.
       </p>
 
       <div className="panel" style={{ padding: 0 }}>
         {data.exceptions.length === 0 && <div className="empty-state">No open exceptions for this batch.</div>}
-        {data.exceptions.map((exc) => (
+        {[...data.exceptions].sort((a, b) => priorityScore(a) - priorityScore(b) || b.amount_paisa - a.amount_paisa).map((exc) => (
           <ExceptionCard
             key={exc.case_id}
             exc={exc}

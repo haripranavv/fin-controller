@@ -3,6 +3,26 @@ import { Link, useParams } from "react-router-dom";
 import { getCaseDetail, getCaseInvestigation } from "../api";
 import { AIDecisionFlow, ChainTimeline, InvestigationSummary, PrivacyBoundaryPanel, StatusBanner } from "../components/CaseTimeline";
 import { formatRupees, formatTimestamp } from "../format";
+
+// record.detail is a raw {field_name: value} dict from the backend - it
+// can carry other *_paisa integer fields (fee_paisa, tax_on_fee_paisa,
+// fee_deducted_paisa) alongside plain strings/dates. This is the one
+// place those get relabeled (never "fee paisa") and reformatted as
+// rupees (never a raw integer) before display - everything else falls
+// through to a plain, title-cased label.
+const DATE_DETAIL_KEYS = new Set(["created_at", "period_start", "period_end", "value_date"]);
+
+function detailLabel(key: string): string {
+  const base = key.endsWith("_paisa") ? key.slice(0, -"_paisa".length) : key;
+  return base.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+}
+
+function detailValue(key: string, v: unknown): string {
+  if (v === null || v === undefined || v === "") return "—";
+  if (key.endsWith("_paisa")) return formatRupees(Number(v));
+  if (DATE_DETAIL_KEYS.has(key)) return formatTimestamp(String(v));
+  return String(v);
+}
 import { narrateEvent } from "../narrate";
 import type { CaseDetail, FinancialRecord, InvestigationDetail } from "../types";
 
@@ -40,7 +60,7 @@ export default function RecordDetail() {
         <div>
           {inv.trace_status === "diverged" && (
             <div className="panel">
-              <div className="panel-title">First divergence &amp; root cause</div>
+              <div className="panel-title">Investigation</div>
               <InvestigationSummary detail={inv} />
             </div>
           )}
@@ -152,8 +172,8 @@ function RecordCard({ record }: { record: FinancialRecord }) {
         <div className="kv-item"><div className="kv-label">Amount</div><div className="kv-value">{formatRupees(record.amount_paisa)}</div></div>
         {Object.entries(record.detail).map(([k, v]) => (
           <div className="kv-item" key={k}>
-            <div className="kv-label">{k.replace(/_/g, " ")}</div>
-            <div className="kv-value" style={{ fontSize: 11.5 }}>{v === null || v === undefined || v === "" ? "—" : String(v)}</div>
+            <div className="kv-label">{detailLabel(k)}</div>
+            <div className="kv-value" style={{ fontSize: 11.5 }}>{detailValue(k, v)}</div>
           </div>
         ))}
       </div>

@@ -41,40 +41,70 @@ export function InvestigationSummary({ detail }: { detail: InvestigationDetail }
   const firstStage = detail.chain.find((s) => s.is_first_divergence);
   const failedCheck = detail.events.flatMap((e) => e.verifier_result?.checks ?? []).find((c) => !c.passed);
   const passedVerifier = detail.outcome === "RESOLVED";
+  const stageName = firstStage ? stageLabel(firstStage.stage) : detail.first_divergence_stage ? stageLabel(detail.first_divergence_stage) : "—";
+  const expected = inv ? formatRupees(inv.expected_amount_paisa) : (firstStage ? formatRupees(firstStage.expected_paisa) : "—");
+  const actual = inv ? formatRupees(inv.actual_amount_paisa) : (firstStage ? formatRupees(firstStage.actual_paisa) : "—");
+  const delta = inv ? formatRupees(inv.delta_paisa) : (firstStage ? formatRupees(firstStage.delta_paisa) : "—");
 
   return (
-    <div className="summary-grid">
-      <SummaryRow label="First divergence">{firstStage ? stageLabel(firstStage.stage) : detail.first_divergence_stage ? stageLabel(detail.first_divergence_stage) : "—"}</SummaryRow>
-      <SummaryRow label="Expected">{inv ? formatRupees(inv.expected_amount_paisa) : (firstStage ? formatRupees(firstStage.expected_paisa) : "—")}</SummaryRow>
-      <SummaryRow label="Actual">{inv ? formatRupees(inv.actual_amount_paisa) : (firstStage ? formatRupees(firstStage.actual_paisa) : "—")}</SummaryRow>
-      <SummaryRow label="Delta">{inv ? formatRupees(inv.delta_paisa) : (firstStage ? formatRupees(firstStage.delta_paisa) : "—")}</SummaryRow>
-      <SummaryRow label="Likely root cause">
-        {inv?.root_cause ? (
-          <>
-            <strong>{rootCauseLabel(inv.root_cause)}</strong>
-            <div className="summary-explain">{humanRootCause(inv.root_cause)}</div>
-          </>
-        ) : "Not determined"}
-      </SummaryRow>
-      <SummaryRow label={detail.resolved_via === "ai" ? "AI confidence" : "Confidence"}>
-        {inv?.confidence !== null && inv?.confidence !== undefined ? `${(inv.confidence * 100).toFixed(0)}%` : "—"}
-        {detail.resolved_via && <span className="pill" style={{ marginLeft: 6 }}>{detail.resolved_via === "ai" ? "AI" : detail.resolved_via === "deterministic" ? "rule" : detail.resolved_via}</span>}
-      </SummaryRow>
-      <SummaryRow label="Verifier result">
-        <span className={passedVerifier ? "badge resolved" : "badge escalated"}>{passedVerifier ? "PASSED" : "FAILED"}</span>
-        {failedCheck && <div className="summary-explain">{failedCheck.name}: {failedCheck.detail}</div>}
-      </SummaryRow>
-      <SummaryRow label="Evidence">
-        {firstStage && firstStage.evidence.length > 0 ? (
-          <span className="mono" style={{ fontSize: 12 }}>{firstStage.evidence.join(", ")}</span>
-        ) : "No supporting records cited"}
-      </SummaryRow>
-      <SummaryRow label="Downstream impact">
-        {detail.downstream_impact.length === 0
-          ? "None — divergence did not propagate further down the chain"
-          : detail.downstream_impact.map((s) => `${stageLabel(s.stage)} (Δ ${formatRupees(s.delta_paisa)})`).join(", ")}
-      </SummaryRow>
-    </div>
+    <>
+      {/* The single most important fact on this screen: where the money
+          stopped adding up, and by how much. Deliberately the largest,
+          highest-contrast block here - everything else is detail. */}
+      <div className="divergence-hero">
+        <div className="divergence-hero-label">First divergence</div>
+        <div className="divergence-hero-stage">{stageName}</div>
+        <div className="divergence-hero-figures">
+          <div className="divergence-hero-figure">
+            <div className="divergence-hero-figure-label">Expected</div>
+            <div className="divergence-hero-figure-value mono">{expected}</div>
+          </div>
+          <div className="divergence-hero-figure">
+            <div className="divergence-hero-figure-label">Actual</div>
+            <div className="divergence-hero-figure-value mono">{actual}</div>
+          </div>
+          <div className="divergence-hero-figure">
+            <div className="divergence-hero-figure-label">Delta</div>
+            <div className="divergence-hero-figure-value mono divergence-hero-delta">{delta}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="summary-grid">
+        <SummaryRow label="Root cause">
+          {inv?.root_cause ? (
+            <>
+              <strong>{rootCauseLabel(inv.root_cause)}</strong>
+              <div className="summary-explain">{humanRootCause(inv.root_cause)}</div>
+            </>
+          ) : "Not determined"}
+        </SummaryRow>
+        <SummaryRow label={detail.resolved_via === "ai" ? "AI confidence" : "Confidence"}>
+          {inv?.confidence !== null && inv?.confidence !== undefined ? `${(inv.confidence * 100).toFixed(0)}%` : "—"}
+          {detail.resolved_via && <span className="pill" style={{ marginLeft: 6 }}>{detail.resolved_via === "ai" ? "AI proposal" : detail.resolved_via === "deterministic" ? "rule" : detail.resolved_via}</span>}
+          {detail.resolved_via === "ai" && (
+            <div className="summary-explain">Confidence is not authorization — only the deterministic verifier below can close a case.</div>
+          )}
+        </SummaryRow>
+        <SummaryRow label="Verifier">
+          <span className={passedVerifier ? "badge resolved" : "badge escalated"}>{passedVerifier ? "PASSED" : "FAILED"}</span>
+          {failedCheck && <div className="summary-explain">{failedCheck.name}: {failedCheck.detail}</div>}
+        </SummaryRow>
+        <SummaryRow label="Final decision">
+          <span className={`badge ${passedVerifier ? "resolved" : "escalated"}`}>{passedVerifier ? "RESOLVED" : "ESCALATED"}</span>
+        </SummaryRow>
+        <SummaryRow label="Evidence">
+          {firstStage && firstStage.evidence.length > 0 ? (
+            <span className="mono" style={{ fontSize: 12, overflowWrap: "anywhere" }}>{firstStage.evidence.join(", ")}</span>
+          ) : "No supporting records cited"}
+        </SummaryRow>
+        <SummaryRow label="Downstream impact">
+          {detail.downstream_impact.length === 0
+            ? "None — divergence did not propagate further down the chain"
+            : detail.downstream_impact.map((s) => `${stageLabel(s.stage)} (Δ ${formatRupees(s.delta_paisa)})`).join(", ")}
+        </SummaryRow>
+      </div>
+    </>
   );
 }
 

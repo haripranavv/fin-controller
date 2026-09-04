@@ -44,8 +44,8 @@ export default function Login() {
   return (
     <div className="login-shell">
       <div className="login-panel">
-        <div className="login-brand">FINANCE CONTROLLER</div>
-        <div className="login-sub">Financial case-closure console</div>
+        <div className="login-brand">nirnaya.</div>
+        <div className="login-sub">Finance operations console — synthetic demo environment</div>
 
         <button type="button" className="primary login-submit" disabled={demoSubmitting} onClick={handleDemo}>
           {demoSubmitting ? "Signing in…" : "Use demo account →"}

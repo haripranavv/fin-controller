@@ -4,6 +4,7 @@ import { listCases } from "../api";
 import { useBatch } from "../context/BatchContext";
 import { StateBadge, ResolvedViaPill, SeverityBadge } from "../components/Badges";
 import { formatRupees, formatTimestamp } from "../format";
+import { rootCauseLabel } from "../narrate";
 import type { CaseListItem } from "../types";
 
 const STATES = ["", "INGESTED", "MATCH_ATTEMPT", "MATCHED", "NO_MATCH", "VERIFY", "DIVERGENCE_TRACE",
@@ -53,8 +54,8 @@ export default function Reconciliation() {
           <table>
             <thead>
               <tr>
-                <th>Order</th><th>Outcome</th><th>Finding</th><th>Resolution path</th>
-                <th className="num">Amount</th><th>Severity</th><th>Updated</th>
+                <th>Case</th><th>Outcome</th><th>Finding</th><th>Root cause</th><th>Resolution path</th>
+                <th className="num">Amount</th><th>Priority</th><th>Updated</th>
               </tr>
             </thead>
             <tbody>
@@ -66,6 +67,7 @@ export default function Reconciliation() {
                   </td>
                   <td><StateBadge state={c.outcome} /></td>
                   <td className="recon-finding">{c.finding}</td>
+                  <td>{rootCauseLabel(c.root_cause)}</td>
                   <td><ResolvedViaPill via={c.resolved_via} /></td>
                   <td className="num">{formatRupees(c.amount_paisa)}</td>
                   <td><SeverityBadge severity={c.severity} /></td>
@@ -73,7 +75,7 @@ export default function Reconciliation() {
                 </tr>
               ))}
               {data.length === 0 && !loading && (
-                <tr><td colSpan={7} className="empty-state">No cases match this filter.</td></tr>
+                <tr><td colSpan={8} className="empty-state">No cases match this filter.</td></tr>
               )}
             </tbody>
           </table>

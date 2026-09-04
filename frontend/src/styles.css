@@ -19,7 +19,7 @@
 :root {
   color-scheme: dark;
 
-  --bg: #050505;
+  --bg: #000000;
   --panel: #0d0d0d;
   --panel-alt: #161514;
   --border: #211f1c;
@@ -70,22 +70,36 @@ body {
 }
 
 .app-shell {
+  --sidebar-w: 208px;
   display: grid;
-  grid-template-columns: 200px 1fr;
+  grid-template-columns: var(--sidebar-w) 1fr;
   grid-template-rows: 48px 1fr;
   grid-template-areas: "topbar topbar" "nav main";
   height: 100vh;
+  height: 100dvh;
 }
+.app-shell.nav-collapsed { --sidebar-w: 52px; }
 
 .topbar {
   grid-area: topbar;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 0 16px;
+  gap: 12px;
+  padding: 0 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
+  min-width: 0;
 }
+
+.menu-btn {
+  display: none;
+  padding: 5px 9px;
+  font-size: 15px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.batch-select { min-width: 0; flex-shrink: 1; }
 
 .brand {
   font-family: var(--display);
@@ -97,8 +111,11 @@ body {
 }
 .brand small { color: var(--text-faint); font-weight: 500; margin-left: 6px; }
 
-.topbar-controls { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.topbar-controls { display: flex; align-items: center; gap: 10px; margin-left: auto; min-width: 0; }
 .topbar-user { font-size: 11px; color: var(--text-faint); }
+.topbar-error { padding: 3px 8px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-indicator-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.run-input { min-width: 140px; width: 160px; }
 
 select, button, input[type="text"] {
   font-family: var(--sans);
@@ -144,16 +161,32 @@ input[type="text"] {
   grid-area: nav;
   background: var(--panel);
   border-right: 1px solid var(--border);
-  padding: 10px 0 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0;
 }
-.nav-scroll { flex: 1; }
-.nav-user { padding: 10px 14px 14px; border-top: 1px solid var(--border); margin-top: 8px; }
+.nav-scroll { flex: 1; padding-top: 4px; }
+.nav-brand { padding: 14px 16px 10px; }
+.nav-brand-mark {
+  display: block; font-family: var(--display); font-weight: 700; font-size: 15px;
+  letter-spacing: 0.06em; color: var(--accent); line-height: 1.1;
+}
+.nav-collapsed .nav-brand-mark { font-size: 11px; text-align: center; letter-spacing: 0; }
+.nav-brand-sub { display: block; font-size: 10px; color: var(--text-faint); margin-top: 3px; }
+.nav-user { padding: 8px 14px 12px; border-top: 1px solid var(--border); margin-top: 8px; flex-shrink: 0; }
+.nav-collapsed .nav-user { padding: 8px 6px 12px; }
 .nav-user-row { display: flex; flex-direction: column; gap: 2px; }
 .nav-user-email { font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-signout { width: 100%; margin-top: 6px; }
+.nav-collapse-toggle {
+  width: 100%; margin-top: 6px; font-size: 11px; color: var(--text-faint); background: transparent;
+  border-color: transparent;
+}
+.nav-collapse-toggle:hover { color: var(--text); border-color: var(--border-strong); }
 .nav a {
   display: block;
   padding: 8px 16px;
@@ -162,17 +195,24 @@ input[type="text"] {
   font-size: 12.5px;
   font-weight: 500;
   border-left: 2px solid transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .nav a:hover { background: var(--panel-alt); color: var(--text); }
 .nav a.active { color: var(--accent); border-left-color: var(--accent); background: var(--accent-dim); }
-.nav a.nav-highlight { color: var(--accent); font-weight: 700; }
-.nav a.nav-highlight:not(.active) { border-left-color: var(--accent-border); }
-.nav-section { padding: 10px 16px 4px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); }
+.nav-section { padding: 10px 16px 4px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); min-height: 22px; }
+.nav-short { display: block; text-align: center; font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; }
+.nav-collapsed a { padding: 8px 4px; text-align: center; }
+
+.nav-backdrop { display: none; }
 
 .main {
   grid-area: main;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 12px 16px 28px;
+  min-width: 0;
 }
 
 h1.page-title { font-family: var(--display); font-size: 16px; margin: 0 0 3px; font-weight: 600; letter-spacing: 0.01em; }
@@ -184,6 +224,11 @@ h1.page-title { font-family: var(--display); font-size: 16px; margin: 0 0 3px; f
   border-radius: var(--radius);
   padding: 11px 14px;
   margin-bottom: 10px;
+  /* Every table in the app lives inside a .panel - this is what keeps a
+     wide table scrolling in its own box instead of forcing page-level
+     horizontal scroll (.main has overflow-x: hidden) or, worse, being
+     silently clipped. */
+  overflow-x: auto;
 }
 .panel-title {
   font-size: 11px;
@@ -266,6 +311,11 @@ td.mono, th.mono { font-family: var(--mono); }
 
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 @media (max-width: 1100px) { .two-col { grid-template-columns: 1fr; } }
+
+.investigation-layout { display: grid; grid-template-columns: 260px 1fr; gap: 10px; align-items: start; }
+.investigation-case-list { max-height: 640px; overflow-y: auto; }
+
+.table-scroll { width: 100%; overflow-x: auto; }
 
 .empty-state { padding: 40px 0; text-align: center; color: var(--text-faint); font-size: 12.5px; }
 .error-state { padding: 12px 14px; background: var(--escalated-bg); color: var(--escalated); border-radius: var(--radius); font-size: 12.5px; }
@@ -369,6 +419,18 @@ td.mono, th.mono { font-family: var(--mono); }
 .timeline-hop-figures { display: flex; gap: 16px; font-family: var(--mono); font-size: 12px; flex-wrap: wrap; }
 .figure-label { color: var(--text-faint); font-family: var(--sans); font-size: 10px; text-transform: uppercase; margin-right: 4px; }
 .figure-delta-nonzero { color: var(--escalated); font-weight: 600; }
+
+/* --- first-divergence hero (Investigation's single most important fact) --- */
+.divergence-hero {
+  padding: 14px 16px; margin: 0 0 14px; border: 1px solid var(--escalated); border-radius: var(--radius);
+  background: var(--escalated-bg);
+}
+.divergence-hero-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--escalated); font-weight: 700; }
+.divergence-hero-stage { font-family: var(--display); font-size: 22px; font-weight: 700; color: var(--text); margin: 2px 0 12px; }
+.divergence-hero-figures { display: flex; gap: 28px; flex-wrap: wrap; }
+.divergence-hero-figure-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); margin-bottom: 2px; }
+.divergence-hero-figure-value { font-size: 19px; font-weight: 600; color: var(--text); }
+.divergence-hero-delta { color: var(--escalated); }
 
 /* --- investigation summary block --- */
 .summary-grid { display: flex; flex-direction: column; }
@@ -499,3 +561,96 @@ td.mono, th.mono { font-family: var(--mono); }
 .import-file-header { display: flex; align-items: center; gap: 10px; }
 .import-sample-errors { margin-top: 8px; padding: 8px 10px; background: var(--escalated-bg); border-radius: var(--radius); font-size: 11.5px; color: var(--escalated); font-family: var(--mono); }
 .import-sample-errors div { padding: 1px 0; }
+
+/* --- responsive: tablet/mobile. Placed last so it wins the cascade
+   against every fixed-pixel-column rule above (chain-stage, summary-row,
+   qa-item, privacy-row, exception-summary-row, kv-grid, ...) without
+   needing !important anywhere. Tested against 320/375/390/430/768/1024. --- */
+@media (max-width: 1024px) {
+  .app-shell { --sidebar-w: 180px; }
+  .app-shell.nav-collapsed { --sidebar-w: 52px; }
+}
+
+@media (max-width: 767px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+    grid-template-areas: "topbar" "main";
+  }
+  .menu-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 40px; min-height: 40px; }
+  .nav-collapse-toggle { display: none; }
+  button, .nav a, select, input[type="text"], input[type="email"], input[type="password"] { min-height: 40px; }
+  .link-btn { min-height: 0; }
+  .nav {
+    position: fixed;
+    top: 48px; bottom: 0; left: 0;
+    width: 240px;
+    transform: translateX(-100%);
+    transition: transform 0.18s ease;
+    z-index: 60;
+    box-shadow: 2px 0 16px rgba(0, 0, 0, 0.5);
+  }
+  /* Collapsed is a desktop-only concept - the mobile drawer is always
+     full-width-labeled when open, never the icon rail. */
+  .app-shell.nav-collapsed .nav { width: 240px; }
+  .nav.nav-mobile-open { transform: translateX(0); }
+  .nav-collapsed .nav-brand-mark { font-size: 15px; text-align: left; }
+  .nav-collapsed .nav-brand-sub { display: block; }
+  .nav-collapsed .nav-section { min-height: 0; }
+  .nav-collapsed a, .nav a { padding: 8px 16px; text-align: left; }
+  .nav-collapsed .nav-short, .nav-short { display: inline; text-align: left; }
+  .nav-backdrop {
+    display: block; position: fixed; inset: 48px 0 0 0; background: rgba(0, 0, 0, 0.55);
+    z-index: 50; opacity: 0; pointer-events: none; transition: opacity 0.18s ease;
+  }
+  .nav-backdrop.visible { opacity: 1; pointer-events: auto; }
+
+  .topbar { flex-wrap: wrap; row-gap: 6px; padding: 6px 10px; height: auto; min-height: 48px; }
+  .batch-select { flex: 1 1 auto; }
+  .run-input, .topbar-controls button.primary, .live-indicator { display: none; }
+  .topbar-error { display: none; }
+
+  .main { padding: 10px 12px 24px; }
+  h1.page-title { font-size: 15px; }
+  .page-sub { font-size: 11.5px; }
+
+  .stat-row { gap: 10px; }
+  .stat-block { flex: 1 1 42%; margin-right: 0; padding-right: 8px; border-right: none; }
+
+  .summary-row, .qa-item, .privacy-row, .exception-summary-row {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+  .exception-summary-row { padding: 10px 12px; }
+  .exception-what-happened { max-width: none; }
+  .privacy-row { padding: 8px 0; grid-template-columns: 10px 1fr; }
+  .privacy-row-state, .privacy-row-note { grid-column: 2; }
+
+  .kv-grid, .record-card .kv-grid { grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+
+  .chain-stage { grid-template-columns: 1fr; }
+  .chain-stage-figures { text-align: left; }
+
+  .decision-flow-marker { width: 18px; height: 18px; }
+
+  /* Investigation, highest mobile priority: case picker collapses to a
+     short scrollable strip above the (now full-width) detail panel
+     instead of a fixed 260px side column. */
+  .investigation-layout { grid-template-columns: 1fr; }
+  .investigation-case-list { max-height: 180px; }
+
+  .divergence-hero { padding: 12px; }
+  .divergence-hero-stage { font-size: 18px; }
+  .divergence-hero-figures { gap: 16px 24px; }
+  .divergence-hero-figure-value { font-size: 16px; }
+
+  /* long ids/evidence: wrap instead of forcing horizontal scroll */
+  .mono, td.mono, .kv-value { overflow-wrap: anywhere; }
+  tbody td { white-space: normal; }
+}
+
+@media (max-width: 480px) {
+  .kv-grid, .record-card .kv-grid { grid-template-columns: 1fr; }
+  .stat-block { flex: 1 1 100%; }
+  .login-panel { width: 100%; max-width: 360px; padding: 22px 18px; }
+  .exception-summary-row { grid-template-columns: 1fr; }
+}

@@ -1,7 +1,16 @@
+/** The backend stores every amount as an integer paisa (1/100 rupee) -
+ * this is the one place that turns that into what an operator reads:
+ * always exactly two decimal places, always the ₹ sign, negative values
+ * as "−₹X.XX" (minus before the symbol, not "₹-X.XX"). Every screen must
+ * go through this - raw *_paisa values are never shown directly. */
 export function formatRupees(paisa: number | null | undefined): string {
-  if (paisa === null || paisa === undefined) return "—";
-  const rupees = paisa / 100;
-  return rupees.toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 });
+  if (paisa === null || paisa === undefined || Number.isNaN(paisa)) return "—";
+  const negative = paisa < 0;
+  const rupees = Math.abs(paisa) / 100;
+  const formatted = rupees.toLocaleString("en-IN", {
+    style: "currency", currency: "INR", minimumFractionDigits: 2, maximumFractionDigits: 2,
+  });
+  return negative ? `−${formatted}` : formatted;
 }
 
 export function formatPercent(fraction: number | null | undefined, digits = 1): string {

@@ -38,8 +38,8 @@ export default function Investigation() {
       <h1 className="page-title">Investigation</h1>
       <p className="page-sub">Pick a case to see its financial chain as a timeline, the first point of divergence, and how it was resolved.</p>
 
-      <div className="two-col" style={{ gridTemplateColumns: "260px 1fr" }}>
-        <div className="panel" style={{ padding: 0, maxHeight: 640, overflowY: "auto" }}>
+      <div className="investigation-layout">
+        <div className="panel investigation-case-list" style={{ padding: 0 }}>
           <div style={{ padding: 10, borderBottom: "1px solid var(--border)" }}>
             <input type="text" placeholder="search order_id…" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: "100%" }} />
           </div>
@@ -79,7 +79,7 @@ function InvestigationBody({ detail }: { detail: InvestigationDetail }) {
           stage-by-stage chain, not after it. */}
       {isDivergent && (
         <div className="panel investigation-summary">
-          <div className="panel-title">First divergence</div>
+          <div className="panel-title">Investigation</div>
           <InvestigationSummary detail={detail} />
         </div>
       )}

@@ -10,10 +10,10 @@ import type { OverviewResponse } from "../types";
 const CONTROL_LOOP = [
   { label: "Import", detail: "Files land through the same pipeline as every batch" },
   { label: "Reconcile", detail: "Deterministic matcher links order → payment → settlement → bank" },
-  { label: "Find divergence", detail: "Constraint verifier flags where the chain stops adding up" },
+  { label: "Divergence", detail: "Constraint verifier flags where the chain stops adding up" },
   { label: "Investigate", detail: "Known-cause rule first; AI investigator if none applies" },
   { label: "Verify", detail: "Deterministic verifier checks the proposed cause against real numbers" },
-  { label: "Resolve / escalate", detail: "Only a verified cause closes a case — otherwise a human reviews it" },
+  { label: "Close", detail: "Only a verified cause closes a case — otherwise a human reviews it" },
 ];
 
 export default function Overview() {
@@ -113,7 +113,7 @@ export default function Overview() {
       <div className="two-col">
         <div className="panel" style={{ padding: 0 }}>
           <div className="panel-title" style={{ padding: "11px 14px 0" }}>
-            Needs attention ({data.attention_cases.length})
+            Attention queue ({data.attention_cases.length})
             {data.highlighted_case_id && (
               <button
                 className="primary" style={{ float: "right", padding: "3px 10px", fontSize: 11.5 }}

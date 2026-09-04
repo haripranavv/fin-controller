@@ -2,17 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { confirmImportJob, createImportJob, getImportJob } from "../api";
 import { useBatch } from "../context/BatchContext";
-import { formatNumber } from "../format";
+import { formatDuration, formatNumber } from "../format";
 import type { FileDetectionResult, ImportJobResponse } from "../types";
 
 const TYPE_LABELS: Record<string, string> = {
   order: "Orders", payment: "Payments", refund: "Refunds",
   settlement: "Settlements", bank_transaction: "Bank transactions",
   unknown: "Unrecognized", rejected_ground_truth: "Rejected — ground truth file",
-};
-
-const STEP_LABELS: Record<string, string> = {
-  QUEUED: "Queued", VALIDATING: "Preview & validate", IMPORTING: "Creating batch", READY: "Ready", FAILED: "Failed",
 };
 
 const POLL_MS = 1200;
@@ -187,7 +183,18 @@ export default function Import() {
 
           {job.status === "IMPORTING" && (
             <div className="panel">
-              <div className="loading-state">Inserting records into the database ({STEP_LABELS[job.status]}…) — this page updates automatically.</div>
+              <div className="case-status-banner tone-progress">
+                <div className="case-status-label">Inserting records into the database</div>
+                <div className="case-status-sub">
+                  {job.current_stage ?? "starting…"} · elapsed {formatDuration(job.elapsed_seconds)}
+                  {job.rows_total > 0 && <> · {formatNumber(job.rows_inserted)} / {formatNumber(job.rows_total)} rows staged so far</>}
+                </div>
+              </div>
+              <p className="page-sub" style={{ marginBottom: 0 }}>
+                This page updates automatically — navigate away and come back any time, this job keeps running on the server
+                and its progress is never lost. Large imports (hundreds of thousands of rows) can genuinely take a minute or more;
+                the stage above only advances when a batch of rows has actually been inserted, it is never a simulated percentage.
+              </p>
             </div>
           )}
 

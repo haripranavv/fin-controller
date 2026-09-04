@@ -29,6 +29,17 @@ export function formatTime(iso: string): string {
   return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 }
 
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) return "—";
+  const s = Math.max(0, Math.round(seconds));
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  if (m === 0) return `${rem}s`;
+  const h = Math.floor(m / 60);
+  if (h === 0) return `${m}m ${rem}s`;
+  return `${h}h ${m % 60}m`;
+}
+
 export function stateTone(state: string): "resolved" | "escalated" | "progress" | "neutral" {
   if (state === "RESOLVED") return "resolved";
   if (state === "ESCALATED") return "escalated";

@@ -39,8 +39,10 @@ from __future__ import annotations
 
 import threading
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlalchemy import insert
 from sqlalchemy.orm import Session
@@ -94,10 +96,27 @@ class ImportJobResponse(BaseModel):
     files: list[FileDetectionResult]
     created_at: str
     updated_at: str
+    # Real, not faked: current_stage is only ever set to a stage
+    # _run_import has actually started, and rows_inserted/rows_total
+    # above are updated incrementally as each record type's bulk insert
+    # actually lands (see _run_import) - never a smoothly-animated
+    # percentage disconnected from real work done. elapsed_seconds is
+    # wall-clock time since the job was created (created_at to now, or
+    # to updated_at once it's no longer running).
+    current_stage: str | None
+    elapsed_seconds: float
 
 
 class ImportConfirmRequest(BaseModel):
     dataset_version: str
+
+
+def _aware(dt: datetime) -> datetime:
+    # Postgres returns timezone-aware datetimes for these
+    # DateTime(timezone=True) columns; SQLite (the test fixture) returns
+    # naive ones for the identical column type. Elapsed-time arithmetic
+    # needs both sides consistently aware.
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
 
 
 def _file_result(f: ImportJobFile) -> FileDetectionResult:
@@ -112,11 +131,15 @@ def _file_result(f: ImportJobFile) -> FileDetectionResult:
 
 def _job_response(job: ImportJob, files: list[ImportJobFile]) -> ImportJobResponse:
     file_results = [_file_result(f) for f in files]
+    still_running = job.status in ("QUEUED", "VALIDATING", "IMPORTING")
+    end = datetime.now(timezone.utc) if still_running else _aware(job.updated_at)
+    elapsed = max(0.0, (end - _aware(job.created_at)).total_seconds())
     return ImportJobResponse(
         job_id=job.job_id, status=job.status, dataset_version=job.dataset_version, batch_id=job.batch_id,
         error_message=job.error_message, files_total=job.files_total, rows_total=job.rows_total,
         rows_inserted=job.rows_inserted, any_ready=any(r.ready for r in file_results), files=file_results,
         created_at=job.created_at.isoformat(), updated_at=job.updated_at.isoformat(),
+        current_stage=job.current_stage, elapsed_seconds=elapsed,
     )
 
 
@@ -145,8 +168,18 @@ async def create_job(files: list[UploadFile] = File(...), session: Session = Dep
     job_files: list[ImportJobFile] = []
     for f in files:
         raw = await f.read()
+        # parse_csv/validate_rows are pure, synchronous, CPU-bound (no
+        # DB/network calls) - for a large file (hundreds of thousands of
+        # rows) they can take real wall-clock seconds. create_job is an
+        # `async def` route, so calling them directly here would block
+        # FastAPI's single asyncio event loop for that whole duration -
+        # every other request on the whole backend (health checks, other
+        # users, this same upload's own later status polls) would stall
+        # until parsing finished. run_in_threadpool moves the CPU work to
+        # a worker thread so the event loop stays responsive; the actual
+        # parsing/validation logic and its result are unchanged.
         try:
-            columns, rows = parse_csv(raw)
+            columns, rows = await run_in_threadpool(parse_csv, raw)
         except Exception as exc:  # noqa: BLE001 - a malformed upload is a validation result, not a 500
             job_files.append(ImportJobFile(
                 job_id=job_id, filename=f.filename or "unknown", detected_type="unknown", raw_bytes=raw,
@@ -166,7 +199,7 @@ async def create_job(files: list[UploadFile] = File(...), session: Session = Dep
             ))
             continue
 
-        validation = validate_rows(detected_type, rows)
+        validation = await run_in_threadpool(validate_rows, detected_type, rows)
         rows_total += len(validation.valid_rows)
         job_files.append(ImportJobFile(
             job_id=job_id, filename=f.filename or "unknown", detected_type=detected_type, raw_bytes=raw,
@@ -230,6 +263,18 @@ def _run_import(job_id: str, dataset_version: str, user_id: int) -> None:
         order_id_map: dict[str, str] = {}
         payment_id_map: dict[str, str] = {}
         inserted = {"order": 0, "payment": 0, "refund": 0, "settlement": 0, "bank_transaction": 0}
+        rows_total = job.rows_total or 1  # avoid /0 in stage text below; a real total is already known at this point
+
+        def _advance_stage(label: str) -> None:
+            # Committed immediately (not batched with the next insert) so
+            # a concurrent GET /api/import/jobs/{id} sees real, current
+            # progress - this is the only reason this function reports
+            # anything other than "IMPORTING" for the whole run.
+            job.current_stage = label
+            job.rows_inserted = sum(inserted.values())
+            session.commit()
+
+        _advance_stage(f"parsing and staging rows (0 / {rows_total})")
 
         idx = 1
         order_dicts = []
@@ -246,6 +291,7 @@ def _run_import(job_id: str, dataset_version: str, user_id: int) -> None:
         if order_dicts:
             session.execute(insert(Order), order_dicts)
         inserted["order"] = len(order_dicts)
+        _advance_stage(f"inserted orders ({sum(inserted.values())} / {rows_total} rows so far)")
 
         idx = 1
         payment_dicts = []
@@ -267,6 +313,7 @@ def _run_import(job_id: str, dataset_version: str, user_id: int) -> None:
         if payment_dicts:
             session.execute(insert(Payment), payment_dicts)
         inserted["payment"] = len(payment_dicts)
+        _advance_stage(f"inserted payments ({sum(inserted.values())} / {rows_total} rows so far)")
 
         idx = 1
         refund_dicts = []
@@ -286,6 +333,7 @@ def _run_import(job_id: str, dataset_version: str, user_id: int) -> None:
         if refund_dicts:
             session.execute(insert(Refund), refund_dicts)
         inserted["refund"] = len(refund_dicts)
+        _advance_stage(f"inserted refunds ({sum(inserted.values())} / {rows_total} rows so far)")
 
         idx = 1
         settlement_dicts = []
@@ -302,6 +350,7 @@ def _run_import(job_id: str, dataset_version: str, user_id: int) -> None:
         if settlement_dicts:
             session.execute(insert(Settlement), settlement_dicts)
         inserted["settlement"] = len(settlement_dicts)
+        _advance_stage(f"inserted settlements ({sum(inserted.values())} / {rows_total} rows so far)")
 
         idx = 1
         bank_dicts = []
@@ -321,6 +370,7 @@ def _run_import(job_id: str, dataset_version: str, user_id: int) -> None:
         total_inserted = sum(inserted.values())
         if total_inserted == 0:
             job.status = "FAILED"
+            job.current_stage = None
             job.error_message = "no valid rows could be inserted (all referenced rows unresolvable or files empty)"
             session.commit()
             return
@@ -328,6 +378,7 @@ def _run_import(job_id: str, dataset_version: str, user_id: int) -> None:
         batch_id = f"batch_{dataset_version}"
         session.add(Batch(batch_id=batch_id, dataset_version=dataset_version, status="created", user_id=user_id))
         job.status = "READY"
+        job.current_stage = None
         job.batch_id = batch_id
         job.rows_inserted = total_inserted
         session.commit()
@@ -336,6 +387,7 @@ def _run_import(job_id: str, dataset_version: str, user_id: int) -> None:
         job = session.query(ImportJob).filter_by(job_id=job_id).first()
         if job is not None:
             job.status = "FAILED"
+            job.current_stage = None
             job.error_message = str(exc)
             session.commit()
     finally:

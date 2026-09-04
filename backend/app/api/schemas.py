@@ -238,3 +238,12 @@ class RunStatus(BaseModel):
     escalated: int | None = None
     errors: int | None = None
     error_message: str | None = None
+    # QUEUED | RUNNING | COMPLETED | FAILED - a display label computed
+    # from running/error_message, not a stored state machine of its own.
+    stage: str = "QUEUED"
+    # Real ReconciliationCase rows committed for this batch so far (see
+    # app/api/routes_runs.py's run_status) - resolved/escalated/errors
+    # above only change once the whole run finishes, so this is the only
+    # field that moves while a run is in progress.
+    processed: int | None = None
+    elapsed_seconds: float | None = None

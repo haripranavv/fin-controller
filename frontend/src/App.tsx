@@ -2,6 +2,7 @@ import { useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { BatchProvider, useBatch } from "./context/BatchContext";
+import { formatDuration, formatNumber } from "./format";
 import Login from "./screens/Login";
 import Overview from "./screens/Overview";
 import Batches from "./screens/Batches";
@@ -16,6 +17,7 @@ function TopBar() {
   const { batches, selectedBatchId, setSelectedBatchId, runStatus, triggerRun, runError } = useBatch();
   const [datasetInput, setDatasetInput] = useState("");
   const running = runStatus?.running ?? false;
+  const stage = runStatus?.stage ?? (running ? "RUNNING" : "QUEUED");
 
   return (
     <div className="topbar">
@@ -35,11 +37,28 @@ function TopBar() {
 
       <div className="topbar-controls">
         {runError && <span className="error-state" style={{ padding: "3px 8px" }}>{runError}</span>}
-        <div className="live-indicator">
+        {stage === "FAILED" && runStatus?.error_message && (
+          <span className="error-state" style={{ padding: "3px 8px" }} title={runStatus.error_message}>
+            run failed: {runStatus.error_message}
+          </span>
+        )}
+        <div className="live-indicator" title={running ? "processed/total is a real, live count of cases actually written so far — never a simulated percentage" : undefined}>
           <span className={`live-dot ${running ? "on" : ""}`} />
-          {running
-            ? `running ${runStatus?.dataset_version} — ${runStatus?.resolved ?? 0} resolved / ${runStatus?.escalated ?? 0} escalated`
-            : "idle"}
+          {running ? (
+            <>
+              running {runStatus?.dataset_version} —{" "}
+              {runStatus?.total
+                ? <>{formatNumber(runStatus.processed)} / {formatNumber(runStatus.total)} cases processed</>
+                : "starting…"}
+              {" "}· {formatDuration(runStatus?.elapsed_seconds)}
+            </>
+          ) : stage === "FAILED" ? (
+            "failed"
+          ) : stage === "COMPLETED" ? (
+            `completed — ${runStatus?.resolved ?? 0} resolved / ${runStatus?.escalated ?? 0} escalated`
+          ) : (
+            "idle"
+          )}
         </div>
         <input
           type="text"

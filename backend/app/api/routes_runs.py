@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+import time
 from dataclasses import dataclass, field
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -44,6 +45,8 @@ class _RunState:
     escalated: int = 0
     errors: int = 0
     error_message: str | None = None
+    started_at: float = field(default_factory=time.time)
+    finished_at: float | None = None
     lock: threading.Lock = field(default_factory=threading.Lock)
 
 
@@ -128,6 +131,7 @@ def _run_in_background(dataset_version: str, batch_id: str, state: _RunState) ->
     finally:
         with state.lock:
             state.running = False
+            state.finished_at = time.time()
         session.close()
 
 
@@ -148,7 +152,7 @@ def trigger_run(req: RunRequest, session: Session = Depends(get_db), user: User 
     _RUNS[batch_id] = state
     thread = threading.Thread(target=_run_in_background, args=(req.dataset_version, batch_id, state), daemon=True)
     thread.start()
-    return RunStatus(batch_id=batch_id, dataset_version=req.dataset_version, running=True)
+    return RunStatus(batch_id=batch_id, dataset_version=req.dataset_version, running=True, stage="RUNNING", processed=0, elapsed_seconds=0.0)
 
 
 @router.get("/{batch_id}/status", response_model=RunStatus)
@@ -157,13 +161,31 @@ def run_status(batch_id: str, session: Session = Depends(get_db), user: User = D
         require_visible_batch(session, batch_id, user)
     state = _RUNS.get(batch_id)
     if state is None:
-        return RunStatus(batch_id=batch_id, dataset_version="", running=False)
+        return RunStatus(batch_id=batch_id, dataset_version="", running=False, stage="QUEUED")
     with state.lock:
-        return RunStatus(
-            batch_id=batch_id, dataset_version=state.dataset_version, running=state.running,
-            total=state.total, resolved=state.resolved, escalated=state.escalated,
-            errors=state.errors, error_message=state.error_message,
-        )
+        running, error_message = state.running, state.error_message
+        total, resolved, escalated, errors = state.total, state.resolved, state.escalated, state.errors
+        elapsed = (state.finished_at or time.time()) - state.started_at
+        dataset_version = state.dataset_version
+    stage = "FAILED" if error_message else ("RUNNING" if running else "COMPLETED")
+    # run_batch (app.orchestrator.batch_runner, unchanged) commits one
+    # ReconciliationCase row per order as it works through the batch, so
+    # counting them from a plain read here is a real, live measurement of
+    # cases reached so far - not a fabricated percentage - without
+    # reaching into orchestrator internals to get it. resolved/escalated
+    # above only update once at the very end (run_batch returns a single
+    # summary), so `processed` is the only true incremental signal
+    # available for a run in progress.
+    processed = (
+        session.query(ReconciliationCase).filter_by(batch_id=batch_id).count()
+        if running or resolved or escalated or errors else 0
+    )
+    return RunStatus(
+        batch_id=batch_id, dataset_version=dataset_version, running=running,
+        total=total, resolved=resolved, escalated=escalated,
+        errors=errors, error_message=error_message,
+        stage=stage, processed=processed, elapsed_seconds=elapsed,
+    )
 
 
 @router.get("/{batch_id}/events", response_model=list[AgentEventItem])

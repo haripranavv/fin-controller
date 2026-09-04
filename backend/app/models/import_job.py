@@ -35,6 +35,12 @@ class ImportJob(Base):
     files_total = Column(Integer, nullable=False, default=0, server_default="0")
     rows_total = Column(Integer, nullable=False, default=0, server_default="0")
     rows_inserted = Column(Integer, nullable=False, default=0, server_default="0")
+    # Human-readable stage within IMPORTING (e.g. "inserting payments
+    # (250,000 / 500,000 rows so far)") - updated and committed by
+    # _run_import after each record-type's bulk insert actually lands, so
+    # a large import shows real, incrementally-advancing progress instead
+    # of sitting at "IMPORTING" with no signal for the whole run.
+    current_stage = Column(String(128), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 

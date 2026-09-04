@@ -276,7 +276,13 @@ export interface ImportJobResponse {
   files: FileDetectionResult[];
   created_at: string;
   updated_at: string;
+  // Real, incrementally-updated progress - see backend/app/api/routes_import.py's
+  // _advance_stage. current_stage is null outside IMPORTING.
+  current_stage: string | null;
+  elapsed_seconds: number;
 }
+
+export type RunStage = "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
 
 export interface RunStatus {
   batch_id: string;
@@ -287,4 +293,10 @@ export interface RunStatus {
   escalated: number | null;
   errors: number | null;
   error_message: string | null;
+  stage: RunStage;
+  // Live count of ReconciliationCase rows committed for this batch so
+  // far - a real measurement, not a fabricated percentage. resolved/
+  // escalated/errors above only change once the whole run completes.
+  processed: number | null;
+  elapsed_seconds: number | null;
 }

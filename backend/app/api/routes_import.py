@@ -59,10 +59,33 @@ from app.models.operational import Batch
 router = APIRouter(prefix="/api/import", tags=["import"])
 
 _JOB_LOCKS: dict[str, threading.Lock] = {}
+# Guards the dataset_version "exists"-check-then-claim step in confirm()
+# below, keyed by dataset_version (not job_id): _JOB_LOCKS alone only
+# serializes two confirm() calls on the SAME job_id (the duplicate-
+# submission case) - it does nothing for two DIFFERENT job_ids racing to
+# confirm with the SAME dataset_version, since each acquires its own,
+# distinct job lock and both can then run _dataset_version_in_use()
+# concurrently before either has committed anything that the other's
+# check would see (a classic check-then-act TOCTOU race: the actual
+# Batch/Order rows _dataset_version_in_use() looks for aren't written
+# until the background import thread runs, well after this check).
+_DATASET_LOCKS: dict[str, threading.Lock] = {}
+_DATASET_LOCKS_GUARD = threading.Lock()
 
 
 def _lock_for(job_id: str) -> threading.Lock:
     return _JOB_LOCKS.setdefault(job_id, threading.Lock())
+
+
+def _lock_for_dataset_version(dataset_version: str) -> threading.Lock:
+    # setdefault on a plain dict isn't itself atomic across threads (two
+    # threads could each create a different Lock object for the same key
+    # in a genuine race), so this one is guarded by its own lock - a
+    # small, always-uncontended critical section (just a dict lookup/
+    # insert), unlike the per-dataset_version lock it hands out, which
+    # can be held for the real check-and-claim work below.
+    with _DATASET_LOCKS_GUARD:
+        return _DATASET_LOCKS.setdefault(dataset_version, threading.Lock())
 
 
 # --- response models -----------------------------------------------------------------
@@ -237,10 +260,26 @@ def get_job(job_id: str, session: Session = Depends(get_db), user: User = Depend
 
 
 def _dataset_version_in_use(session: Session, dataset_version: str) -> bool:
+    # Checks two different things that both mean "not available":
+    # already-committed rows from a past import (Batch/Order), AND
+    # another job that has already claimed this dataset_version and is
+    # actively importing it right now (ImportJob.status), whose own
+    # Batch/Order rows may not exist yet. The second check is what
+    # closes the TOCTOU race described above - without it, two jobs
+    # racing on the same dataset_version would both see "not in use"
+    # here regardless of locking, because neither has written a Batch/
+    # Order row at the moment either check runs.
     if session.query(Batch).filter_by(batch_id=f"batch_{dataset_version}").first() is not None:
         return True
     like = f"%_{dataset_version}_%"
-    return session.query(Order).filter(Order.order_id.like(like)).first() is not None
+    if session.query(Order).filter(Order.order_id.like(like)).first() is not None:
+        return True
+    return (
+        session.query(ImportJob)
+        .filter(ImportJob.dataset_version == dataset_version, ImportJob.status.in_(("IMPORTING", "READY")))
+        .first()
+        is not None
+    )
 
 
 def _run_import(job_id: str, dataset_version: str, user_id: int) -> None:
@@ -408,16 +447,29 @@ def confirm(job_id: str, req: ImportConfirmRequest, session: Session = Depends(g
         dv = req.dataset_version.strip()
         if not dv or not dv.replace("-", "").replace("_", "").isalnum():
             raise HTTPException(status_code=400, detail="dataset_version must be non-empty and alphanumeric (dashes/underscores allowed)")
-        if _dataset_version_in_use(session, dv):
-            raise HTTPException(status_code=409, detail=f"dataset_version {dv!r} is already in use - choose a different batch name")
 
         files = session.query(ImportJobFile).filter_by(job_id=job_id).all()
         if not any(f.valid_row_count for f in files):
             raise HTTPException(status_code=400, detail="no valid rows staged for this job - nothing to insert")
 
-        job.status = "IMPORTING"
-        job.dataset_version = dv
-        session.commit()
+        # The exists-check and the claim (status -> IMPORTING,
+        # dataset_version set) have to happen as one atomic step under
+        # THIS dataset_version's own lock - two different job_ids
+        # confirming with the same dataset_version each hold a different
+        # _JOB_LOCKS entry above, so that lock alone can't serialize them
+        # against each other. Whichever request gets here second, for
+        # the same dataset_version, now correctly sees the first
+        # request's claim (either its committed IMPORTING/READY status,
+        # via the extended _dataset_version_in_use check, or - if the
+        # first request is still mid-critical-section - by simply
+        # blocking on this same lock until it finishes and re-reading
+        # after).
+        with _lock_for_dataset_version(dv):
+            if _dataset_version_in_use(session, dv):
+                raise HTTPException(status_code=409, detail=f"dataset_version {dv!r} is already in use - choose a different batch name")
+            job.status = "IMPORTING"
+            job.dataset_version = dv
+            session.commit()
 
     thread = threading.Thread(target=_run_import, args=(job_id, dv, user.id), daemon=True)
     thread.start()

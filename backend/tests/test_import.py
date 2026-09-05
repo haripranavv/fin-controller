@@ -250,6 +250,17 @@ def test_duplicate_confirm_is_rejected(client):
 def test_confirm_rejects_dataset_version_collision(client):
     job_id1 = _upload(client, {"orders.csv": ORDERS_CSV}).json()["job_id"]
     client.post(f"/api/import/jobs/{job_id1}/confirm", json={"dataset_version": "collide1"})
+    # Let job 1's background thread reach a terminal state before job 2
+    # touches the same SQLite connection (StaticPool - every session in
+    # this test process, including the background thread's, shares one
+    # physical connection; two threads writing through it concurrently is
+    # a SQLite-only hazard, not something that occurs against real
+    # per-connection-pooled Postgres). The actual collision-rejection
+    # behavior under test - confirm() sees a live IMPORTING/READY job
+    # already claiming this dataset_version - doesn't depend on racing
+    # the two jobs against each other; asserting it once job 1 is READY
+    # is the deterministic version of the same check.
+    _wait_ready_or_failed(client, job_id1)
     job_id2 = _upload(client, {"orders.csv": ORDERS_CSV}).json()["job_id"]
     resp = client.post(f"/api/import/jobs/{job_id2}/confirm", json={"dataset_version": "collide1"})
     assert resp.status_code == 409
